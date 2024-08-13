@@ -5,6 +5,7 @@ import time
 
 import cv2
 import easyocr
+import torch
 
 from Commands.Keys import KeyPress, Button, Hat, Direction, Stick
 from utils import Sender
@@ -39,7 +40,6 @@ class SuikaEnv:
         self.init_text_image = self.init_text_image[:, :, ::-1]
         self.ring_evolution_image = self.ring_evolution_image[:, :, ::-1]
         self.reader = easyocr.Reader(['en'])
-        self.current_score = 0
         ser = Sender(False)
         ser.openSerial(COMPORT)
         self.key = KeyPress(ser)
@@ -48,7 +48,7 @@ class SuikaEnv:
         self.cap.set(3, 1920)
         self.cap.set(4, 1080)
         self.reader = easyocr.Reader(['en'])
-        self.current_score = 0
+        self.current_score = self.get_score()
 
     
     def step(self, action):
@@ -61,12 +61,12 @@ class SuikaEnv:
         elif action == 1:
             # 左を押す
             self.key.input([Hat.LEFT])
-            time.sleep(0.2)
+            time.sleep(0.1)
             self.key.inputEnd([Hat.LEFT])
         elif action == 2:
             # 右を押す
             self.key.input([Hat.RIGHT])
-            time.sleep(0.2)
+            time.sleep(0.1)
             self.key.inputEnd([Hat.RIGHT])
         else:
             raise ValueError('action must be 0, 1 or 2')
@@ -82,12 +82,23 @@ class SuikaEnv:
         else:
             reward = 0
         
+        #if action == 0:
+        #    pass
+        #else:
+        #    reward -= 0.1
+        
+        #reward -= 0.1
+
         # 終了判定を行う
         done = self.is_done()
 
         # 観測の取得
         obs = self.get_observation()
-        return obs, reward, done
+
+        info = {
+            "score": self.current_score,
+        }
+        return obs, reward, done, info
 
     def reset(self):
         # stateを初期化
@@ -154,7 +165,7 @@ class SuikaEnv:
                 self.key.inputEnd([Button.A])
                 time.sleep(3)
             time.sleep(1)
-            frame = self.get_frame() # get_frame()を空打ちしないと取得できるカメラ画像が更新されていないことがある（？）
+            #frame = self.get_frame() # get_frame()を空打ちしないと取得できるカメラ画像が更新されていないことがある（？）
             game_state = self.is_which_state()
     
     def is_done(self):
@@ -237,7 +248,7 @@ class SuikaEnv:
             score = -1
         return score
 
-    def get_frame(self, discard_frame=1):
+    def get_frame(self, discard_frame=3):
         for _ in range(discard_frame):
             self.cap.read()
         # 現在のフレームを取得するメソッド
@@ -250,5 +261,5 @@ class SuikaEnv:
     def get_observation(self):
         frame = self.get_frame()
         obs = frame[OBSERVE_YMIN:OBSERVE_YMAX, OBSERVE_XMIN:OBSERVE_XMAX, :]
-        obs = cv2.resize(obs, OBSERVE_SIZE, interpolation=cv2.INTER_LINEAR)
-        return obs
+        obs = cv2.resize(obs, OBSERVE_SIZE, interpolation=cv2.INTER_LINEAR) / 255.0
+        return torch.FloatTensor(obs).permute(2, 0, 1).unsqueeze(0)
